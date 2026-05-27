@@ -1,0 +1,90 @@
+# ─── TrendLens AI v6.0 — Docker Compose ──────────────────────────────────────
+# Full stack: Next.js app + MongoDB + Mongo Express (admin UI)
+# Usage: docker compose up -d
+
+version: "3.8"
+
+services:
+  # ─── MongoDB ──────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: trendlens-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: trendlens
+      MONGO_INITDB_ROOT_PASSWORD: trendlens123
+      MONGO_INITDB_DATABASE: trendlens
+    volumes:
+      - mongodb_data:/data/db
+      - ./scripts/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── TrendLens AI App ────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trendlens-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      MONGO_URI: mongodb://trendlens:trendlens123@mongodb:27017/trendlens?authSource=admin
+      MONGO_DB_NAME: trendlens
+      MONGO_MAX_POOL_SIZE: "10"
+      MONGO_MIN_POOL_SIZE: "2"
+      RAG_ENABLED: "true"
+      SHAP_ENABLED: "true"
+      CAPTION_GEN_ENABLED: "true"
+      NODE_ENV: production
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ─── MongoDB Seed (runs once) ───────────────────────────────────────────
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trendlens-seed
+    restart: "no"
+    environment:
+      MONGO_URI: mongodb://trendlens:trendlens123@mongodb:27017/trendlens?authSource=admin
+      MONGO_DB_NAME: trendlens
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    command: ["npx", "tsx", "scripts/seed-mongodb.ts", "--clean"]
+
+  # ─── Mongo Express (Admin UI - optional) ────────────────────────────────
+  mongo-express:
+    image: mongo-express:1.0
+    container_name: trendlens-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: trendlens
+      ME_CONFIG_MONGODB_ADMINPASSWORD: trendlens123
+      ME_CONFIG_MONGODB_URL: mongodb://trendlens:trendlens123@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  mongodb_data:
+    driver: local
