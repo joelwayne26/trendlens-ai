@@ -32,8 +32,8 @@ export async function POST(request: NextRequest) {
     const category = classifyCategory(caption);
     let captionFeatures = extractCaptionFeatures(caption, category);
 
-    // Update trend alignment with actual trend data
-    const trendAlignment = computeTrendAlignment(caption, category);
+    // Update trend alignment with actual trend data (now async — live Nitter + RSS)
+    const trendAlignment = await computeTrendAlignment(caption, category);
     captionFeatures = {
       ...captionFeatures,
       trendAlignment,
