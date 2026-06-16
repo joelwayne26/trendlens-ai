@@ -35,7 +35,7 @@ export default function TrendLensDashboard() {
   const [activeTab, setActiveTab] = useState('evaluate');
   const [caption, setCaption] = useState('');
   const [evaluating, setEvaluating] = useState(false);
-  const [evaluation, setEvaluation] = useState<(PosterEvaluation & { imageQuality?: any; imageImprovements?: string[] }) | null>(null);
+  const [evaluation, setEvaluation] = useState<(PosterEvaluation & { imageQuality?: any; imageImprovements?: string[]; evaluationMode?: 'caption' | 'poster' | 'both' }) | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [trends, setTrends] = useState<TrendSignal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,17 +92,33 @@ export default function TrendLensDashboard() {
   };
 
   // ─── Evaluate ──────────────────────────────────────────────────────
+  // Mode is derived from what the user actually provided:
+  //   'caption' → caption only (no image)
+  //   'poster'  → poster only (no caption)
+  //   'both'    → caption + poster
+  const evaluationMode: 'caption' | 'poster' | 'both' | null =
+    caption.trim() && imageBase64 ? 'both'
+    : caption.trim() ? 'caption'
+    : imageBase64 ? 'poster'
+    : null;
+
   const handleEvaluate = async () => {
-    if (!caption.trim() && !imageBase64) return;
+    if (!evaluationMode) return;
     setEvaluating(true);
     try {
+      const payload: Record<string, unknown> = { evaluationMode };
+      // Only send the fields the user actually provided — do NOT auto-fill
+      // the caption with a placeholder when the user only uploaded a poster.
+      if (evaluationMode === 'caption' || evaluationMode === 'both') {
+        payload.caption = caption.trim();
+      }
+      if (evaluationMode === 'poster' || evaluationMode === 'both') {
+        payload.imageBase64 = imageBase64;
+      }
       const res = await fetch('/api/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caption: caption || '(No caption provided)',
-          imageBase64: imageBase64 || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       setEvaluation(data);
@@ -158,11 +174,14 @@ export default function TrendLensDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">{Icons.evaluate} Evaluate Poster</CardTitle>
-                  <CardDescription>Enter your caption to get an AI-powered evaluation with SHAP explanations and RAG insights</CardDescription>
+                  <CardDescription>
+                    Enter a caption, upload a poster, or both — the evaluation adapts to what you provide:
+                    caption-only, poster-only, or combined.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Textarea
-                    placeholder="Enter your social media caption here... e.g., 'Fresh cakes available! DM to order your custom wedding cake. #CakeKampala #UgandanBakery'"
+                    placeholder="Enter your social media caption here (optional)... e.g., 'Fresh cakes available! DM to order your custom wedding cake. #CakeKampala #UgandanBakery'"
                     value={caption}
                     onChange={(e) => setCaption(e.target.value)}
                     className="min-h-[120px]"
@@ -201,22 +220,46 @@ export default function TrendLensDashboard() {
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-2 text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
                         <p className="text-sm text-muted-foreground">Upload poster image (optional)</p>
-                        <p className="text-xs text-muted-foreground/70">Click or drag to upload. Max 10MB.</p>
+                        <p className="text-xs text-muted-foreground/70">Upload alone to evaluate the poster only. Max 10MB.</p>
                       </button>
                     )}
                   </div>
 
                   <div className="flex gap-2">
-                    <Button onClick={handleEvaluate} disabled={evaluating || (!caption.trim() && !imageBase64)} className="bg-orange-100 text-orange-800 border border-orange-200 hover:bg-orange-200 hover:border-orange-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                      {evaluating ? 'Evaluating...' : 'Evaluate Poster'}
+                    <Button
+                      onClick={handleEvaluate}
+                      disabled={evaluating || evaluationMode === null}
+                      className="bg-orange-100 text-orange-800 border border-orange-200 hover:bg-orange-200 hover:border-orange-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300"
+                    >
+                      {evaluating
+                        ? 'Evaluating...'
+                        : evaluationMode === 'both'
+                          ? 'Evaluate Caption + Poster'
+                          : evaluationMode === 'caption'
+                            ? 'Evaluate Caption'
+                            : evaluationMode === 'poster'
+                              ? 'Evaluate Poster'
+                              : 'Enter caption or upload poster'}
                     </Button>
                     <Button variant="outline" onClick={() => { setCaption(''); setEvaluation(null); clearImage(); }}>
                       Clear
                     </Button>
                   </div>
-                  {(caption || imageBase64) && !evaluation && (
-                    <div className="text-sm text-muted-foreground">
-                      {caption.split(/\s+/).filter(Boolean).length} words | {(caption.match(/#\w+/g) || []).length} hashtags | {(caption.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}]/gu) || []).length} emojis{imageBase64 ? ' | Image attached' : ''}
+                  {(caption.trim() || imageBase64) && !evaluation && (
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <div>
+                        <span className="font-medium text-sky-700 dark:text-sky-400">
+                          Will evaluate: {evaluationMode === 'both' ? 'Caption + Poster' : evaluationMode === 'caption' ? 'Caption only' : 'Poster only'}
+                        </span>
+                      </div>
+                      {evaluationMode !== 'poster' && (
+                        <div>
+                          {caption.split(/\s+/).filter(Boolean).length} words | {(caption.match(/#\w+/g) || []).length} hashtags | {(caption.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}]/gu) || []).length} emojis
+                        </div>
+                      )}
+                      {evaluationMode !== 'caption' && imageFileName && (
+                        <div>Image attached: {imageFileName}</div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -229,13 +272,34 @@ export default function TrendLensDashboard() {
                     {/* Score Summary */}
                     <Card>
                       <CardHeader>
-                        <CardTitle className="text-base">Score Summary</CardTitle>
+                        <CardTitle className="text-base flex items-center justify-between">
+                          <span>Score Summary</span>
+                          {evaluation.evaluationMode && (
+                            <Badge variant="secondary" className="text-xs capitalize">
+                              {evaluation.evaluationMode === 'both' ? 'Caption + Poster' : evaluation.evaluationMode === 'caption' ? 'Caption only' : 'Poster only'}
+                            </Badge>
+                          )}
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="grid grid-cols-3 gap-3">
                           <ScoreDisplay score={evaluation.overallScore} label="Overall" size="lg" />
-                          <ScoreDisplay score={evaluation.posterScore} label="Poster" />
-                          <ScoreDisplay score={evaluation.captionScore} label="Caption" />
+                          {evaluation.evaluationMode === 'caption' ? (
+                            <div className="flex flex-col items-center gap-1 p-3 rounded-xl border bg-muted/30 border-muted">
+                              <span className="text-2xl font-bold text-muted-foreground">N/A</span>
+                              <span className="text-xs text-muted-foreground font-medium">Poster</span>
+                            </div>
+                          ) : (
+                            <ScoreDisplay score={evaluation.posterScore} label="Poster" />
+                          )}
+                          {evaluation.evaluationMode === 'poster' ? (
+                            <div className="flex flex-col items-center gap-1 p-3 rounded-xl border bg-muted/30 border-muted">
+                              <span className="text-2xl font-bold text-muted-foreground">N/A</span>
+                              <span className="text-xs text-muted-foreground font-medium">Caption</span>
+                            </div>
+                          ) : (
+                            <ScoreDisplay score={evaluation.captionScore} label="Caption" />
+                          )}
                         </div>
                         <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
                           <span>Confidence: {evaluation.confidenceInterval.lower.toFixed(1)} - {evaluation.confidenceInterval.upper.toFixed(1)}</span>
@@ -267,7 +331,7 @@ export default function TrendLensDashboard() {
                   <Card className="flex items-center justify-center min-h-[200px]">
                     <div className="text-center text-muted-foreground">
                       <p className="text-lg font-medium">No evaluation yet</p>
-                      <p className="text-sm">Enter a caption and click Evaluate to get started</p>
+                      <p className="text-sm">Enter a caption, upload a poster, or both — then click Evaluate</p>
                     </div>
                   </Card>
                 )}

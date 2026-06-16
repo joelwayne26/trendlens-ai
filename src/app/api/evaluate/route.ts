@@ -19,7 +19,7 @@ import { PosterEvaluation, BenchmarkData, RagInsight, ShapValue, CaptionVariant,
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { caption = '', imageUrl = '', imageBase64 = '' } = body;
+    const { caption = '', imageUrl = '', imageBase64 = '', evaluationMode } = body;
 
     if (!caption && !imageUrl && !imageBase64) {
       return NextResponse.json(
@@ -28,21 +28,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Extract features
-    const category = classifyCategory(caption);
-    let captionFeatures = extractCaptionFeatures(caption, category);
+    // Normalize evaluation mode. The frontend sends one of:
+    //   'caption' → caption only (no image)
+    //   'poster'  → poster only (no caption)
+    //   'both'    → caption + poster
+    // For backward compatibility we infer the mode from the payload when not provided.
+    const mode: 'caption' | 'poster' | 'both' =
+      evaluationMode === 'caption' || evaluationMode === 'poster' || evaluationMode === 'both'
+        ? evaluationMode
+        : (caption && imageBase64 ? 'both' : caption ? 'caption' : 'poster');
+
+    // 1. Extract features — only when a caption was actually provided.
+    //    For 'poster' mode we skip caption feature extraction entirely so the
+    //    empty caption doesn't drag the overall score down with penalties.
+    const category = caption ? classifyCategory(caption) : 'general';
+    let captionFeatures = caption
+      ? extractCaptionFeatures(caption, category)
+      : zeroCaptionFeatures();
 
     // Update trend alignment with actual trend data (now async — live Nitter + RSS)
-    const trendAlignment = await computeTrendAlignment(caption, category);
-    captionFeatures = {
-      ...captionFeatures,
-      trendAlignment,
-    };
+    // Only runs when there is a caption to align.
+    if (caption) {
+      const trendAlignment = await computeTrendAlignment(caption, category);
+      captionFeatures = {
+        ...captionFeatures,
+        trendAlignment,
+      };
+    }
 
-    // 2. Server-side image analysis (if image provided)
+    // 2. Server-side image analysis — only when an image was actually provided
+    //    ('poster' or 'both' mode).
     let imageQuality: ImageQualityMetrics | null = null;
     let imageImprovements: string[] = [];
-    if (imageBase64) {
+    if (imageBase64 && mode !== 'caption') {
       try {
         imageQuality = await analyzeImageQuality(imageBase64);
         imageImprovements = generateImageImprovementSuggestions(imageQuality);
@@ -60,45 +78,68 @@ export async function POST(request: NextRequest) {
     // 4. Compute scores (now using real image quality)
     const rawScore = heuristicScore(captionFeatures, imageQuality);
     const overall10 = scoreTo1to10(rawScore);
-    const adjustedOverall = benchmarks.dbConnected && benchmarks.categorySamples >= 5
-      ? adjustScoreWithBenchmarks(overall10, captionFeatures, benchmarks)
-      : overall10;
 
     const posterScore = computePosterScore(imageQuality, captionFeatures, benchmarks);
     const captionScoreValue = computeCaptionScore(captionFeatures, category, benchmarks);
     const confidenceInterval = computeConfidenceInterval(rawScore);
 
+    // Overall score is mode-aware:
+    //   'caption' → driven by the caption score
+    //   'poster'  → driven by the poster score
+    //   'both'    → blended heuristic + data-driven score (original behavior)
+    let adjustedOverall: number;
+    if (mode === 'caption') {
+      adjustedOverall = captionScoreValue;
+    } else if (mode === 'poster') {
+      adjustedOverall = posterScore;
+    } else {
+      adjustedOverall = benchmarks.dbConnected && benchmarks.categorySamples >= 5
+        ? adjustScoreWithBenchmarks(overall10, captionFeatures, benchmarks)
+        : overall10;
+    }
+
     // 5. Compute SHAP values (with image quality)
     const shapValues = computeShapValues(captionFeatures, imageQuality);
 
-    // 6. RAG — search for similar high-performing posts
+    // 6. RAG — search for similar high-performing posts (only meaningful with a caption)
     let ragInsights: RagInsight[] = [];
-    try {
-      const similarPosts = await searchSimilarPosts(caption, category, 5);
-      ragInsights = generateRagInsights(similarPosts, captionFeatures, category);
-    } catch {
-      // RAG is non-critical
+    if (mode !== 'poster') {
+      try {
+        const similarPosts = await searchSimilarPosts(caption, category, 5);
+        ragInsights = generateRagInsights(similarPosts, captionFeatures, category);
+      } catch {
+        // RAG is non-critical
+      }
     }
 
-    // 7. Generate improved caption
+    // 7. Generate improved caption (only when there is a caption to improve on)
     const topHashtags = benchmarks.hashtagPerformance
       ? Object.keys(benchmarks.hashtagPerformance).slice(0, 5)
       : [];
-    const improvedCaption = generateImprovedCaption(
-      caption, captionFeatures, category,
-      trendAlignment.matchedKeywords,
-      topHashtags,
-    );
+    const improvedCaption = mode === 'poster'
+      ? 'Add a caption to receive an AI-generated, engagement-optimized variant.'
+      : generateImprovedCaption(
+          caption, captionFeatures, category,
+          captionFeatures.trendAlignment.matchedKeywords,
+          topHashtags,
+        );
 
-    // 8. Generate platform variants
-    const captionVariants = generatePlatformVariants(improvedCaption, captionFeatures, category);
+    // 8. Generate platform variants (only when there is a caption)
+    const captionVariants = mode === 'poster'
+      ? []
+      : generatePlatformVariants(improvedCaption, captionFeatures, category);
 
-    // 9. Generate improvements
-    const posterImprovements = generatePosterImprovements(captionFeatures, benchmarks, imageQuality);
-    const captionImprovements = generateCaptionImprovements(captionFeatures, category, benchmarks);
+    // 9. Generate improvements — mode-aware:
+    //    'poster'  → skip caption-only suggestions (no caption was provided)
+    //    'caption' → skip image-only suggestions (no image was uploaded)
+    //    'both'    → all suggestions
+    const posterImprovements = generatePosterImprovements(captionFeatures, benchmarks, imageQuality, mode);
+    const captionImprovements = mode === 'poster'
+      ? []
+      : generateCaptionImprovements(captionFeatures, category, benchmarks);
 
     // 10. Generate annotations (now with image-based annotations)
-    const annotations = generateAnnotations(captionFeatures, rawScore, imageQuality);
+    const annotations = generateAnnotations(captionFeatures, rawScore, imageQuality, mode);
 
     // 11. Get model version
     let modelVersion = 'heuristic';
@@ -119,6 +160,7 @@ export async function POST(request: NextRequest) {
         caption_score: captionScoreValue,
         category,
         model_version: modelVersion,
+        evaluation_mode: mode,
         shap_values: shapValues.map(s => ({ feature: s.feature, contribution: s.contribution })),
         rag_insights_count: ragInsights.length,
         image_quality: imageQuality ? {
@@ -132,7 +174,7 @@ export async function POST(request: NextRequest) {
       });
     } catch { /* Non-critical */ }
 
-    const result: PosterEvaluation & { imageQuality?: ImageQualityMetrics | null; imageImprovements?: string[] } = {
+    const result: PosterEvaluation & { imageQuality?: ImageQualityMetrics | null; imageImprovements?: string[]; evaluationMode?: string } = {
       overallScore: adjustedOverall,
       posterScore,
       captionScore: captionScoreValue,
@@ -167,6 +209,7 @@ export async function POST(request: NextRequest) {
       benchmarks,
       imageQuality,
       imageImprovements,
+      evaluationMode: mode,
     };
 
     return NextResponse.json(result);
@@ -180,6 +223,26 @@ export async function POST(request: NextRequest) {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
+
+// Returns a zeroed CaptionFeatures object used in 'poster' mode (no caption provided).
+// This prevents the empty-string caption from being penalized by the heuristic scorer.
+function zeroCaptionFeatures(): import('@/lib/types').CaptionFeatures {
+  return {
+    hashtagCount: 0,
+    wordCount: 0,
+    emojiCount: 0,
+    hasPrice: false,
+    hasCta: false,
+    ctaType: '',
+    sentiment: { polarity: 0, subjectivity: 0 },
+    readability: 0,
+    trendAlignment: { score: 0, method: 'none', bestTrendKeyword: '', matchedKeywords: [] },
+    categoryChecks: {},
+    captionScore: 0,
+    suggestions: [],
+    rawCaption: '',
+  };
+}
 
 async function fetchBenchmarks(category: string): Promise<BenchmarkData> {
   const defaults: BenchmarkData = {
@@ -285,29 +348,33 @@ function generatePosterImprovements(
   cf: import('@/lib/types').CaptionFeatures,
   benchmarks: BenchmarkData,
   imageQuality: ImageQualityMetrics | null,
+  mode: 'caption' | 'poster' | 'both' = 'both',
 ): string[] {
   const improvements: string[] = [];
   const db = benchmarks.dbConnected;
   const samples = benchmarks.categorySamples;
 
-  if (!cf.hasPrice) {
-    if (db && benchmarks.priceEngagementBoost > 0) {
-      improvements.push(`Add a visible price (e.g., 'UGX 50,000') — based on ${samples} posts, prices boost engagement by ${Math.abs(benchmarks.priceEngagementBoost * 100).toFixed(1)}%`);
-    } else {
-      improvements.push("No price found — add a visible price (e.g., 'UGX 50,000') to boost buyer intent");
+  // Caption-derived improvements are only meaningful when a caption was provided.
+  if (mode !== 'poster') {
+    if (!cf.hasPrice) {
+      if (db && benchmarks.priceEngagementBoost > 0) {
+        improvements.push(`Add a visible price (e.g., 'UGX 50,000') — based on ${samples} posts, prices boost engagement by ${Math.abs(benchmarks.priceEngagementBoost * 100).toFixed(1)}%`);
+      } else {
+        improvements.push("No price found — add a visible price (e.g., 'UGX 50,000') to boost buyer intent");
+      }
     }
-  }
 
-  if (!cf.hasCta) {
-    if (db && benchmarks.ctaEngagementBoost > 0) {
-      improvements.push(`Add a call-to-action like 'DM to order' — our data shows CTAs boost engagement by ${Math.abs(benchmarks.ctaEngagementBoost * 100).toFixed(1)}%`);
-    } else {
-      improvements.push("No call-to-action — add text like 'DM to order' or 'WhatsApp 0700 XXX XXX'");
+    if (!cf.hasCta) {
+      if (db && benchmarks.ctaEngagementBoost > 0) {
+        improvements.push(`Add a call-to-action like 'DM to order' — our data shows CTAs boost engagement by ${Math.abs(benchmarks.ctaEngagementBoost * 100).toFixed(1)}%`);
+      } else {
+        improvements.push("No call-to-action — add text like 'DM to order' or 'WhatsApp 0700 XXX XXX'");
+      }
     }
-  }
 
-  if (cf.sentiment.polarity < -0.1) {
-    improvements.push('Caption tone is negative — use positive, enthusiastic language to attract customers');
+    if (cf.sentiment.polarity < -0.1) {
+      improvements.push('Caption tone is negative — use positive, enthusiastic language to attract customers');
+    }
   }
 
   // Image-based improvements
@@ -321,7 +388,8 @@ function generatePosterImprovements(
     if (imageQuality.resolution.width < 480) {
       improvements.push('Image resolution is too low for social media — use at least 1080px wide');
     }
-  } else {
+  } else if (mode !== 'caption') {
+    // Only suggest uploading an image when the user didn't explicitly choose caption-only.
     improvements.push('Add a poster image — posts with images get 2.3x more engagement than text-only posts');
   }
 
@@ -366,22 +434,26 @@ function generateAnnotations(
   cf: import('@/lib/types').CaptionFeatures,
   score: number,
   imageQuality: ImageQualityMetrics | null,
+  mode: 'caption' | 'poster' | 'both' = 'both',
 ): import('@/lib/types').PosterAnnotation[] {
   const annotations: import('@/lib/types').PosterAnnotation[] = [];
   let num = 1;
 
-  if (!cf.hasPrice) {
-    annotations.push({ number: num++, x: 0.5, y: 0.7, title: 'Missing Price', detail: 'Add a clear price to increase engagement', severity: 'warning' });
-  }
-  if (!cf.hasCta) {
-    annotations.push({ number: num++, x: 0.5, y: 0.85, title: 'No CTA', detail: "Add a call-to-action like 'DM to order'", severity: 'warning' });
-  }
-  if (cf.hashtagCount < 5) {
-    annotations.push({ number: num++, x: 0.9, y: 0.95, title: 'Low Hashtags', detail: `Only ${cf.hashtagCount} hashtags — aim for 8+`, severity: 'info' });
+  // Caption-derived annotations only apply when a caption was provided.
+  if (mode !== 'poster') {
+    if (!cf.hasPrice) {
+      annotations.push({ number: num++, x: 0.5, y: 0.7, title: 'Missing Price', detail: 'Add a clear price to increase engagement', severity: 'warning' });
+    }
+    if (!cf.hasCta) {
+      annotations.push({ number: num++, x: 0.5, y: 0.85, title: 'No CTA', detail: "Add a call-to-action like 'DM to order'", severity: 'warning' });
+    }
+    if (cf.hashtagCount < 5) {
+      annotations.push({ number: num++, x: 0.9, y: 0.95, title: 'Low Hashtags', detail: `Only ${cf.hashtagCount} hashtags — aim for 8+`, severity: 'info' });
+    }
   }
 
-  // Image-based annotations
-  if (imageQuality) {
+  // Image-based annotations only apply when an image was provided.
+  if (mode !== 'caption' && imageQuality) {
     if (imageQuality.blurScore < 0.25) {
       annotations.push({ number: num++, x: 0.5, y: 0.5, title: 'Blurry Image', detail: 'Image is too blurry — retake with stable camera', severity: 'critical' });
     }
