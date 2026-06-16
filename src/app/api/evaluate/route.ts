@@ -84,12 +84,19 @@ export async function POST(request: NextRequest) {
     const confidenceInterval = computeConfidenceInterval(rawScore);
 
     // Overall score is mode-aware:
-    //   'caption' → driven by the caption score
+    //   'caption' → heuristic-based caption score (rewards CTA / hashtag / price presence,
+    //               aligns with the SHAP explainer's contribution model). We deliberately
+    //               do NOT use `captionScoreValue` here because that metric is derived from
+    //               category-rule pass/fail checks — for categories where CTA/price are not
+    //               "required", those checks always pass and adding the feature does not
+    //               move the score, even though SHAP correctly shows a positive contribution.
     //   'poster'  → driven by the poster score
     //   'both'    → blended heuristic + data-driven score (original behavior)
     let adjustedOverall: number;
     if (mode === 'caption') {
-      adjustedOverall = captionScoreValue;
+      adjustedOverall = benchmarks.dbConnected && benchmarks.categorySamples >= 5
+        ? adjustScoreWithBenchmarks(overall10, captionFeatures, benchmarks)
+        : overall10;
     } else if (mode === 'poster') {
       adjustedOverall = posterScore;
     } else {

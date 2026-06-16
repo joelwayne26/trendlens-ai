@@ -36,8 +36,14 @@ export function extractCaptionFeatures(caption: string, category?: string): Capt
   const hasCta = !!ctaMatch;
 
   // Price detection
-  const hasPrice = PRICE_PATTERNS.some(p => lower.includes(p)) ||
-    /\d{3,}/.test(caption); // Number with 3+ digits likely a price in UGX
+  // A standalone 3+ digit number is too lenient — it matches phone numbers like
+  // "070735363" (9 digits) and ages / years. We require either:
+  //   (a) an explicit currency keyword nearby (ugx, ush, $, shs, etc.), OR
+  //   (b) a 4–7 digit number, which is the typical range for UGX prices (5,000–500,000)
+  //       while excluding longer sequences (phone numbers, IDs).
+  const hasCurrencyKeyword = PRICE_PATTERNS.some(p => lower.includes(p));
+  const hasStandalonePriceNumber = /\b\d{4,7}\b/.test(caption);
+  const hasPrice = hasCurrencyKeyword || hasStandalonePriceNumber;
 
   // Sentiment (simple lexicon-based)
   const positiveWords = ['amazing', 'delicious', 'best', 'fresh', 'love', 'perfect', 'special', 'premium', 'quality', 'tasty', 'yummy', 'mouthwatering', 'irresistible', 'incredible', 'fantastic', 'awesome', 'wonderful', 'excellent', 'great', 'beautiful', 'gorgeous'];
