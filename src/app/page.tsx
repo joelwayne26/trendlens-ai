@@ -1,6 +1,6 @@
 /**
  * TrendLens AI v6.0 — Main Dashboard Page
- * Single-page application with 9 tabs covering all features.
+ * Single-page application focused on the Evaluate tab.
  */
 
 'use client';
@@ -32,7 +32,7 @@ const Icons = {
 };
 
 export default function TrendLensDashboard() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('evaluate');
   const [caption, setCaption] = useState('');
   const [evaluating, setEvaluating] = useState(false);
   const [evaluation, setEvaluation] = useState<(PosterEvaluation & { imageQuality?: any; imageImprovements?: string[] }) | null>(null);
@@ -148,20 +148,8 @@ export default function TrendLensDashboard() {
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="flex flex-wrap gap-1 bg-muted/50 p-1 rounded-lg">
-            <TabsTrigger value="dashboard" className="gap-1.5 text-xs">{Icons.dashboard} Dashboard</TabsTrigger>
             <TabsTrigger value="evaluate" className="gap-1.5 text-xs">{Icons.evaluate} Evaluate</TabsTrigger>
-            <TabsTrigger value="trends" className="gap-1.5 text-xs">{Icons.trends} Trends</TabsTrigger>
-            <TabsTrigger value="insights" className="gap-1.5 text-xs">{Icons.insights} Insights</TabsTrigger>
-            <TabsTrigger value="pipeline" className="gap-1.5 text-xs">{Icons.pipeline} Pipeline</TabsTrigger>
-            <TabsTrigger value="models" className="gap-1.5 text-xs">{Icons.models} Models</TabsTrigger>
-            <TabsTrigger value="settings" className="gap-1.5 text-xs">{Icons.settings} Settings</TabsTrigger>
-            <TabsTrigger value="guide" className="gap-1.5 text-xs">{Icons.guide} Guide</TabsTrigger>
           </TabsList>
-
-          {/* ─── Dashboard Tab ──────────────────────────────────────── */}
-          <TabsContent value="dashboard">
-            <DashboardTab stats={stats} fetchStats={fetchStats} />
-          </TabsContent>
 
           {/* ─── Evaluate Tab ────────────────────────────────────────── */}
           <TabsContent value="evaluate">
@@ -478,129 +466,6 @@ export default function TrendLensDashboard() {
                 )}
               </div>
             )}
-          </TabsContent>
-
-          {/* ─── Trends Tab ──────────────────────────────────────────── */}
-          <TabsContent value="trends">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">{Icons.trends} Trending Topics</CardTitle>
-                <CardDescription>Current food business trends in Uganda</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 mb-4">
-                  {['general', 'cake', 'bakery', 'restaurant'].map(cat => (
-                    <Button key={cat} variant="outline" size="sm" onClick={() => fetchTrends(cat)} className="capitalize">
-                      {cat}
-                    </Button>
-                  ))}
-                </div>
-                {trends.length > 0 ? (
-                  <div className="space-y-2">
-                    {trends.map((trend, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-bold text-muted-foreground w-6">{idx + 1}.</span>
-                          <div>
-                            <p className="text-sm font-medium capitalize">{trend.keyword}</p>
-                            <p className="text-xs text-muted-foreground">{trend.volume.toLocaleString()} searches</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Badge variant="secondary" className="text-xs">
-                            {(trend.growthRate * 100).toFixed(0)}% growth
-                          </Badge>
-                          <div className="w-16 bg-muted rounded-full h-2">
-                            <div
-                              className="h-full bg-sky-500 rounded-full"
-                              style={{ width: `${trend.score * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Click a category above to see trends</p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ─── Insights Tab ────────────────────────────────────────── */}
-          <TabsContent value="insights">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">{Icons.insights} RAG Insights</CardTitle>
-                <CardDescription>Search for similar high-performing posts using AI-powered similarity matching</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <RagSearchPanel />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ─── Pipeline Tab ────────────────────────────────────────── */}
-          <TabsContent value="pipeline">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">{Icons.pipeline} Data Pipeline</CardTitle>
-                  <CardDescription>ETL transformation and auto-retraining pipeline</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <PipelineStatusDisplay />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>MMD Drift Detection</CardTitle>
-                  <CardDescription>Statistical drift monitoring using Maximum Mean Discrepancy</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <DriftDisplay />
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* ─── Models Tab ──────────────────────────────────────────── */}
-          <TabsContent value="models">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">{Icons.models} Model Registry</CardTitle>
-                <CardDescription>XGBoost model version history and performance metrics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ModelsDisplay />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ─── Settings Tab ────────────────────────────────────────── */}
-          <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">{Icons.settings} Settings</CardTitle>
-                <CardDescription>Configuration and feature flags</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <SettingsDisplay />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ─── Guide Tab ───────────────────────────────────────────── */}
-          <TabsContent value="guide">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">{Icons.guide} User Guide</CardTitle>
-                <CardDescription>How to use TrendLens AI v6.0 effectively</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <GuideContent />
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </main>
