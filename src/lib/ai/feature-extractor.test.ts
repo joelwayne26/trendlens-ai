@@ -34,8 +34,56 @@ describe('extractCaptionFeatures', () => {
       expect(f.hasCta).toBe(true);
     });
 
-    it('returns false for captions without a CTA', () => {
+    it('detects "delivery" as a CTA', () => {
+      const f = extractCaptionFeatures('We offer delivery across Kampala');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects "inquiries" as a CTA', () => {
+      const f = extractCaptionFeatures('Call for inquiries and bookings');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects a standalone phone number as a CTA (regression test)', () => {
+      // The user's caption: "Late lunch has to hit the mark👌\n📍Wandegeya, opp YMCA\n☎️ 0758852130 (Inquiries, Delivery)"
+      // Was being flagged as NO CTA — clearly wrong.
+      const f = extractCaptionFeatures('Late lunch has to hit the mark👌\n📍Wandegeya, opp YMCA\n☎️ 0758852130 (Inquiries, Delivery)');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects a phone number without emoji as a CTA', () => {
+      const f = extractCaptionFeatures('Best food in Uganda. Call 0758852130.');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects +256 international phone format as a CTA', () => {
+      const f = extractCaptionFeatures('Reach us on +256 758 852 130');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects ☎️ emoji alone as a CTA', () => {
+      const f = extractCaptionFeatures('☎️ available 9am to 9pm');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects 📞 emoji alone as a CTA', () => {
+      const f = extractCaptionFeatures('📞 Talk to us today');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('detects "07XX XXX XXX" phone format with spaces as a CTA', () => {
+      const f = extractCaptionFeatures('To order, call 0700 123 456');
+      expect(f.hasCta).toBe(true);
+    });
+
+    it('returns false for captions without a CTA or phone number', () => {
       const f = extractCaptionFeatures('Best food in Uganda. We make tasty things.');
+      expect(f.hasCta).toBe(false);
+    });
+
+    it('returns false for captions with short digit sequences that are not phone numbers', () => {
+      // 3-digit numbers like "3 days" or "100%" should not be flagged as CTA via phone
+      const f = extractCaptionFeatures('We are open 7 days, 100% fresh');
       expect(f.hasCta).toBe(false);
     });
   });

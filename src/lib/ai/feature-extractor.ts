@@ -8,6 +8,13 @@ import { CaptionFeatures, ImageQualityMetrics, ExtractedFeatures } from '../type
 import { classifyCategory, getCategoryRule } from './category-rules';
 
 // ─── CTA Detection Patterns ────────────────────────────────────────────────
+// A call-to-action is any phrase that asks the reader to take a next step:
+// message us, call us, visit us, order, book, etc.
+//
+// Standalone phone numbers are ALSO CTAs in food-business captions — a line
+// like "☎️ 0758852130 (Inquiries, Delivery)" is unambiguously asking the
+// customer to call. We detect this in hasCta below rather than as a pattern,
+// because the phone number format varies (07XX, +256, 0700 XXX XXX, etc.).
 
 const CTA_PATTERNS = [
   'dm to', 'dm us', 'dm me', 'whatsapp', 'link in bio', 'order now',
@@ -15,7 +22,21 @@ const CTA_PATTERNS = [
   'slide into our dm', 'hit us up', 'reach out', 'tap the link',
   'click the link', 'shop now', 'order yours', 'limited offer',
   'while stock lasts', 'don\'t miss out', 'contact us',
+  // v6.1: more CTA phrases common in Ugandan food-business captions
+  'inquiries', 'inquiry', 'delivery', 'reservations', 'reservation',
+  'reserve', 'book a table', 'reserve your', 'order yours today',
+  'available for', 'dm for', 'whatsapp us', 'call us', 'call the',
+  'phone ', 'tel:', 'reach us', 'available on', 'tap to order',
+  'order via', 'inbox us', 'message us',
 ];
+
+// Phone number patterns (Ugandan + international):
+//   07XX XXX XXX        — Ugandan mobile (0758852130, 0700 123 456)
+//   +256 7XX XXX XXX    — Ugandan international format
+//   256 7XX XXX XXX     — Ugandan without +
+//   0XXX-XXX-XXX        — With dashes
+//   ☎️ / 📞 emoji + digits — Phone emoji followed by digits
+const PHONE_REGEX = /(\+?256|0)\s?\d[\d\s\-]{6,12}\d/;
 
 const PRICE_PATTERNS = [
   'ugx', 'ush', 'u_sh', 'ugandan shilling', 'starting at',
@@ -34,9 +55,18 @@ export function extractCaptionFeatures(caption: string, category?: string): Capt
   // business captions), Dingbats, and Misc symbols.
   const emojis = caption.match(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu) || [];
 
-  // CTA detection
+  // CTA detection — combines three signals:
+  //   1. A CTA keyword phrase is present (e.g. "whatsapp", "dm to", "delivery")
+  //   2. A phone number is present (07XX..., +256..., with optional spaces/dashes)
+  //   3. A phone emoji (☎️ 📞) is present — strong CTA signal in food captions
+  //
+  // Any one of these is enough — a caption like "☎️ 0758852130 (Inquiries, Delivery)"
+  // has no explicit "call us" wording but is clearly a CTA.
   const ctaMatch = CTA_PATTERNS.find(p => lower.includes(p));
-  const hasCta = !!ctaMatch;
+  const hasPhone = PHONE_REGEX.test(caption);
+  const hasPhoneEmoji = /☎️|📞|📱/u.test(caption);
+  const hasCta = !!ctaMatch || hasPhone || hasPhoneEmoji;
+  const ctaType = ctaMatch || (hasPhoneEmoji ? 'phone' : hasPhone ? 'phone-number' : '');
 
   // Price detection
   // A standalone 3+ digit number is too lenient — it matches phone numbers like
@@ -149,7 +179,7 @@ export function extractCaptionFeatures(caption: string, category?: string): Capt
     emojiCount: emojis.length,
     hasPrice,
     hasCta,
-    ctaType: ctaMatch || '',
+    ctaType,
     sentiment: { polarity, subjectivity: Math.abs(polarity) },
     readability,
     trendAlignment,
