@@ -138,13 +138,13 @@ export interface ModelRegistryEntry {
 
 export interface DriftMeasurement {
   timestamp: string;
-  feature: string;
+  feature?: string;
   mmdScore: number;
-  mmdValue: number; // alias for mmdScore, used by DriftChart
+  mmdValue?: number; // alias for mmdScore, used by DriftChart
   pValue: number;
   isDrift: boolean;
   sampleSize: number;
-  baselineStats: { mean: number; std: number };
+  baselineStats: { mean: number | number[]; std: number | number[] };
 }
 
 // ─── Model Registry Alias (for chart compatibility) ────────────────────────

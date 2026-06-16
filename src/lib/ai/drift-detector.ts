@@ -4,7 +4,7 @@
  * No external APIs — all computation is local.
  */
 
-import { DriftMeasurement } from './types';
+import { DriftMeasurement } from '../types';
 
 // ─── MMD Computation ───────────────────────────────────────────────────────
 

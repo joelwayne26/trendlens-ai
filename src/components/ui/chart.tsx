@@ -1,3 +1,8 @@
+// @ts-nocheck — shadcn/ui's chart.tsx has known type incompatibilities with
+// Recharts v3. This is a vendored third-party component; we suppress type
+// checking here rather than fork-and-patch the whole file. The application's
+// own code remains fully type-checked once next.config.ts stops ignoring
+// build errors project-wide.
 "use client"
 
 import * as React from "react"

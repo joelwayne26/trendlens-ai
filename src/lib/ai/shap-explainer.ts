@@ -1,11 +1,20 @@
 /**
- * TrendLens AI v6.0 — SHAP Explainer
- * Simplified SHAP (SHapley Additive exPlanations) value computation
- * for explaining feature contributions to the evaluation score.
+ * TrendLens AI v6.1 — SHAP Explainer
+ *
+ * v6.1: When a trained logistic-regression model is available, we compute
+ * mathematically-correct SHAP values for the linear model:
+ *
+ *     phi_i = w_i * (x_i - E[x_i])
+ *
+ * This is the closed-form Shapley value for additive linear models. The
+ * previous v6.0 hand-tuned contributions are now only used as a fallback
+ * when no trained model exists.
+ *
  * No external APIs — all computation is local.
  */
 
 import { CaptionFeatures, ImageQualityMetrics, ShapValue } from '../types';
+import { buildFeatureVector } from './feature-extractor';
 
 // ─── Feature Definitions ───────────────────────────────────────────────────
 
@@ -110,6 +119,10 @@ const FEATURE_DEFINITIONS: FeatureDef[] = [
 
 // ─── SHAP Computation ──────────────────────────────────────────────────────
 
+/**
+ * Hand-tuned heuristic SHAP (v6.0 behaviour). Used as a fallback when no
+ * trained model is available.
+ */
 export function computeShapValues(
   captionFeatures: CaptionFeatures,
   imageQuality: ImageQualityMetrics | null,
@@ -166,4 +179,81 @@ export function getFeatureImportanceSummary(shapValues: ShapValue[]): {
     topNegative: negative.slice(0, 5),
     summary,
   };
+}
+
+// ─── Trained-Model SHAP (v6.1) ─────────────────────────────────────────────
+
+export interface TrainedModelPayload {
+  weights: number[];
+  bias: number;
+  baseline: number[];
+  featureNames: string[];
+}
+
+/**
+ * Compute mathematically-correct SHAP values for a trained linear model.
+ * Falls back to the heuristic computeShapValues() if no model is provided.
+ *
+ * The contribution of feature i is:
+ *     phi_i = w_i * (x_i - baseline_i)
+ *
+ * which is the closed-form Shapley value for an additive linear model.
+ *
+ * The returned values are scaled to a [-10, +10] range (matching the
+ * heuristic explainer's range) so the UI's waterfall chart can render
+ * them with the same axis.
+ */
+export function computeShapValuesFromModel(
+  captionFeatures: CaptionFeatures,
+  imageQuality: ImageQualityMetrics | null,
+  model: TrainedModelPayload | null,
+): ShapValue[] {
+  if (!model) {
+    return computeShapValues(captionFeatures, imageQuality);
+  }
+
+  const features = buildFeatureVector(captionFeatures, imageQuality);
+  const descriptions: Record<string, string> = {
+    'Hashtags (normalized)': 'Number of hashtags in the caption',
+    'Word Count (normalized)': 'Word count in the caption',
+    'Emoji Count (normalized)': 'Emoji count in the caption',
+    'Has Price': 'Includes pricing information',
+    'Has CTA': 'Presence of a call-to-action phrase',
+    'Sentiment Polarity': 'Positive tone in the caption',
+    'Readability': 'How easy the caption is to read',
+    'Trend Alignment': 'Alignment with current trending topics',
+    'Caption Score (0-1)': 'Composite caption quality score',
+    'Has Required Keywords': 'Required keywords for the category',
+    'Image Brightness': 'Poster image brightness level',
+    'Image Contrast': 'Poster image contrast level',
+    'Image Saturation': 'Color saturation of the poster',
+    'Image Sharpness': 'Image clarity (blur detection)',
+    'Image Aspect Ratio': 'Width/height ratio of the poster',
+    'Image Quality Rating': 'Composite image quality rating',
+  };
+
+  const raw: ShapValue[] = [];
+  for (let i = 0; i < model.weights.length; i++) {
+    const name = model.featureNames[i] || `Feature ${i}`;
+    const value = features[i] ?? 0;
+    const baseline = model.baseline[i] ?? 0;
+    const contribution = model.weights[i] * (value - baseline);
+    raw.push({
+      feature: name,
+      value: Math.round(value * 100) / 100,
+      contribution,
+      description: descriptions[name] || '',
+    });
+  }
+
+  // Scale to a comparable magnitude. The heuristic explainer scales
+  // contributions by ~0.5 (60/120). We scale the linear-model contributions
+  // by 10 so the most impactful features are visible in the chart while
+  // preserving their relative ordering and sign.
+  const scaled = raw.map(sv => ({
+    ...sv,
+    contribution: Math.round(sv.contribution * 10 * 10) / 10,
+  }));
+
+  return scaled.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
 }

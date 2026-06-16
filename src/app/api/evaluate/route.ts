@@ -7,12 +7,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractCaptionFeatures, buildFeatureVector } from '@/lib/ai/feature-extractor';
 import { heuristicScore, scoreTo1to10, adjustScoreWithBenchmarks, computeConfidenceInterval, computePosterScore, computeCaptionScore } from '@/lib/ai/scoring-engine';
-import { computeShapValues, getFeatureImportanceSummary } from '@/lib/ai/shap-explainer';
+import { computeShapValues, computeShapValuesFromModel, getFeatureImportanceSummary, TrainedModelPayload } from '@/lib/ai/shap-explainer';
 import { generateImprovedCaption, generatePlatformVariants } from '@/lib/ai/caption-generator';
 import { searchSimilarPosts, generateRagInsights } from '@/lib/ai/rag-engine';
 import { computeTrendAlignment } from '@/lib/ai/trend-engine';
 import { classifyCategory, getCategoryRule } from '@/lib/ai/category-rules';
 import { analyzeImageQuality, generateImageImprovementSuggestions } from '@/lib/ai/server-image-analysis';
+import { predictEngagement } from '@/lib/ai/logistic-regression';
 import { healthCheck, PostsRepository, GroundTruthRepository, ModelRegistryRepository, EvaluationRepository } from '@/lib/db/client';
 import { PosterEvaluation, BenchmarkData, RagInsight, ShapValue, CaptionVariant, ImageQualityMetrics } from '@/lib/types';
 
@@ -105,8 +106,41 @@ export async function POST(request: NextRequest) {
         : overall10;
     }
 
-    // 5. Compute SHAP values (with image quality)
-    const shapValues = computeShapValues(captionFeatures, imageQuality);
+    // 5. Load trained model (if available) and compute SHAP values.
+    //    When a trained logistic-regression model exists in MongoDB, we use
+    //    mathematically-correct linear SHAP: phi_i = w_i * (x_i - baseline_i).
+    //    Otherwise we fall back to the v6.0 hand-tuned heuristic SHAP.
+    let trainedModel: TrainedModelPayload | null = null;
+    let modelVersion = 'heuristic';
+    try {
+      const modelRepo = new ModelRegistryRepository();
+      const latest = await modelRepo.getLatest('logistic-regression');
+      if (latest && Array.isArray(latest.weights) && Array.isArray(latest.baseline)) {
+        trainedModel = {
+          weights: latest.weights as number[],
+          bias: (latest.bias as number) || 0,
+          baseline: latest.baseline as number[],
+          featureNames: Array.isArray(latest.features)
+            ? (latest.features as string[])
+            : [],
+        };
+        modelVersion = (latest.version as string) || 'unknown';
+
+        // Blend the trained model's engagement probability into the overall
+        // score (only when we have a caption — poster-only mode has no
+        // caption features to feed the model). Weight: 30% model, 70% heuristic.
+        if (mode !== 'poster') {
+          const features = buildFeatureVector(captionFeatures, imageQuality);
+          const pHigh = predictEngagement(features, trainedModel);
+          const modelScore10 = 1 + pHigh * 9; // map [0,1] → [1,10]
+          adjustedOverall = Math.round((0.7 * adjustedOverall + 0.3 * modelScore10) * 10) / 10;
+        }
+      }
+    } catch {
+      // Model loading is best-effort — fall back to heuristic SHAP.
+    }
+
+    const shapValues = computeShapValuesFromModel(captionFeatures, imageQuality, trainedModel);
 
     // 6. RAG — search for similar high-performing posts (only meaningful with a caption)
     let ragInsights: RagInsight[] = [];
@@ -148,13 +182,8 @@ export async function POST(request: NextRequest) {
     // 10. Generate annotations (now with image-based annotations)
     const annotations = generateAnnotations(captionFeatures, rawScore, imageQuality, mode);
 
-    // 11. Get model version
-    let modelVersion = 'heuristic';
-    try {
-      const modelRepo = new ModelRegistryRepository();
-      const latest = await modelRepo.getLatest('xgboost');
-      if (latest) modelVersion = (latest.version as string) || 'unknown';
-    } catch { /* ignore */ }
+    // 11. (modelVersion was loaded earlier in step 5 along with the trained
+    //     model — no need to re-fetch from MongoDB here.)
 
     // 12. Store evaluation (with image quality data)
     try {
@@ -365,39 +394,39 @@ function generatePosterImprovements(
   if (mode !== 'poster') {
     if (!cf.hasPrice) {
       if (db && benchmarks.priceEngagementBoost > 0) {
-        improvements.push(`Add a visible price (e.g., 'UGX 50,000') — based on ${samples} posts, prices boost engagement by ${Math.abs(benchmarks.priceEngagementBoost * 100).toFixed(1)}%`);
+        improvements.push(`💰 Add a visible price (e.g., 'UGX 50,000') — based on ${samples} posts, prices boost engagement by ${Math.abs(benchmarks.priceEngagementBoost * 100).toFixed(1)}%`);
       } else {
-        improvements.push("No price found — add a visible price (e.g., 'UGX 50,000') to boost buyer intent");
+        improvements.push("💰 No price found — add a visible price (e.g., 'UGX 50,000') to boost buyer intent");
       }
     }
 
     if (!cf.hasCta) {
       if (db && benchmarks.ctaEngagementBoost > 0) {
-        improvements.push(`Add a call-to-action like 'DM to order' — our data shows CTAs boost engagement by ${Math.abs(benchmarks.ctaEngagementBoost * 100).toFixed(1)}%`);
+        improvements.push(`📣 Add a call-to-action like 'DM to order' — our data shows CTAs boost engagement by ${Math.abs(benchmarks.ctaEngagementBoost * 100).toFixed(1)}%`);
       } else {
-        improvements.push("No call-to-action — add text like 'DM to order' or 'WhatsApp 0700 XXX XXX'");
+        improvements.push("📣 No call-to-action — add text like 'DM to order' or 'WhatsApp 0700 XXX XXX'");
       }
     }
 
     if (cf.sentiment.polarity < -0.1) {
-      improvements.push('Caption tone is negative — use positive, enthusiastic language to attract customers');
+      improvements.push('😊 Caption tone is negative — use positive, enthusiastic language to attract customers');
     }
   }
 
   // Image-based improvements
   if (imageQuality) {
     if (imageQuality.brightness < 0.25) {
-      improvements.push('Your poster image is too dark — use better lighting to make the food look appetizing');
+      improvements.push('💡 Your poster image is too dark — use better lighting to make the food look appetizing');
     }
     if (imageQuality.blurScore < 0.25) {
-      improvements.push('Image appears blurry — use a stable camera and tap to focus for sharp food photos');
+      improvements.push('📷 Image appears blurry — use a stable camera and tap to focus for sharp food photos');
     }
     if (imageQuality.resolution.width < 480) {
-      improvements.push('Image resolution is too low for social media — use at least 1080px wide');
+      improvements.push('🖼️ Image resolution is too low for social media — use at least 1080px wide');
     }
   } else if (mode !== 'caption') {
     // Only suggest uploading an image when the user didn't explicitly choose caption-only.
-    improvements.push('Add a poster image — posts with images get 2.3x more engagement than text-only posts');
+    improvements.push('🖼️ Add a poster image — posts with images get 2.3x more engagement than text-only posts');
   }
 
   return improvements.slice(0, 8);
@@ -411,27 +440,31 @@ function generateCaptionImprovements(cf: import('@/lib/types').CaptionFeatures, 
   if (cf.hashtagCount < rules.minHashtags) {
     const gap = rules.idealHashtags - cf.hashtagCount;
     if (db && benchmarks.topHashtags?.length) {
-      suggestions.push(`Add ${gap} more hashtags — top performers: ${benchmarks.topHashtags.slice(0, 5).join(' ')}`);
+      suggestions.push(`#️⃣ Add ${gap} more hashtags — top performers: ${benchmarks.topHashtags.slice(0, 5).join(' ')}`);
     } else {
-      suggestions.push(`Add ${gap} more hashtags — ${rules.idealHashtags}+ is ideal for ${category} posts`);
+      suggestions.push(`#️⃣ Add ${gap} more hashtags — ${rules.idealHashtags}+ is ideal for ${category} posts`);
     }
   }
 
   const checks = cf.categoryChecks as Record<string, unknown>;
   if (!checks.cta_check_pass) {
-    suggestions.push("Add a call-to-action like 'DM to order', 'Link in bio', or 'WhatsApp 0700 123456'");
+    suggestions.push("📣 Add a call-to-action like 'DM to order', 'Link in bio', or 'WhatsApp 0700 123456'");
   }
 
   if (!checks.price_check_pass) {
-    suggestions.push("Include pricing (e.g., 'Starting at UGX 50,000') — price mentions increase engagement by up to 30%");
+    suggestions.push("💰 Include pricing (e.g., 'Starting at UGX 50,000') — price mentions increase engagement by up to 30%");
   }
 
   if (cf.wordCount < rules.idealCaptionLength[0]) {
-    suggestions.push(`Caption is too short (${cf.wordCount} words) — aim for ${rules.idealCaptionLength[0]}-${rules.idealCaptionLength[1]} words`);
+    suggestions.push(`✍️ Caption is too short (${cf.wordCount} words) — aim for ${rules.idealCaptionLength[0]}-${rules.idealCaptionLength[1]} words`);
+  }
+
+  if (cf.emojiCount < 1) {
+    suggestions.push('😊 Add 2-3 relevant emojis to make the caption more visually appealing');
   }
 
   if (cf.trendAlignment.score < 0.2 && cf.trendAlignment.bestTrendKeyword) {
-    suggestions.push(`Low trend alignment — incorporate trending topics like '${cf.trendAlignment.bestTrendKeyword}'`);
+    suggestions.push(`📈 Low trend alignment — incorporate trending topics like '${cf.trendAlignment.bestTrendKeyword}'`);
   }
 
   return suggestions.slice(0, 6);

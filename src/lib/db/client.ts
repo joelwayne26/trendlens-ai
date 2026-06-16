@@ -90,7 +90,7 @@ export class BaseRepository {
   async findMany(query: Record<string, unknown>, options?: { sort?: Record<string, number>; limit?: number; skip?: number }) {
     const c = await this.coll();
     let cursor = c.find(query);
-    if (options?.sort) cursor = cursor.sort(options.sort);
+    if (options?.sort) cursor = cursor.sort(options.sort as unknown as import('mongodb').Sort);
     if (options?.skip) cursor = cursor.skip(options.skip);
     if (options?.limit) cursor = cursor.limit(options.limit);
     return cursor.toArray();
@@ -241,7 +241,7 @@ export class EmbeddingsRepository extends BaseRepository {
       }
     ];
     if (filter) {
-      pipeline[0].$vectorSearch.filter = filter;
+      (pipeline[0].$vectorSearch as { filter?: Record<string, unknown> }).filter = filter;
     }
     return db.collection(this.collectionName).aggregate(pipeline).toArray();
   }

@@ -1,40 +1,32 @@
 /**
- * TrendLens AI v6.0 — Local Caption Generator
+ * TrendLens AI v6.1 — Local Caption Improver
+ *
+ * IMPORTANT BEHAVIOUR CHANGE (v6.1):
+ *   Previously `generateImprovedCaption` would discard the user's wording and
+ *   construct an entirely new caption from templates. Users complained that
+ *   their own voice was being replaced. The new behaviour PRESERVES the
+ *   user's original caption verbatim and only APPENDS missing elements
+ *   (price, CTA, emojis, additional hashtags). The from-scratch fallback is
+ *   only used when the user provided an empty caption.
+ *
  * Template-based NLG with intelligent composition — NO external LLM APIs.
- * Generates creative, contextually-aware captions for Ugandan food businesses.
+ * Tailored for Ugandan food businesses.
  */
 
-import { CaptionFeatures } from './types';
-import { getCategoryRule, CATEGORY_RULES } from './category-rules';
+import { CaptionFeatures } from '../types';
+import { getCategoryRule } from './category-rules';
 
 // ─── Pattern Library ───────────────────────────────────────────────────────
 
 interface CaptionPattern {
-  openings: string[];
-  descriptions: string[];
-  benefits: string[];
   ctas: string[];
   hashtagSets: Record<string, string[]>;
   emojiSets: string[];
+  pricePhrases: string[];
 }
 
 const PATTERNS: Record<string, CaptionPattern> = {
   cake: {
-    openings: [
-      'Indulge in', 'Treat yourself to', 'Celebrate with', 'Make their day with',
-      'Say yes to', 'Fall in love with', 'Your special day deserves',
-    ],
-    descriptions: [
-      'our handcrafted {item}', 'a masterpiece of flavor', 'the finest {item} in town',
-      'our signature {item}', 'something truly special', 'a work of edible art',
-    ],
-    benefits: [
-      'Made with premium ingredients and lots of love',
-      'Every bite is a celebration',
-      'Custom designs to match your vision',
-      'Fresh baked, never frozen',
-      'We deliver right to your door',
-    ],
     ctas: [
       'DM to order yours today!',
       'WhatsApp 0700 XXX XXX to place your order',
@@ -44,26 +36,13 @@ const PATTERNS: Record<string, CaptionPattern> = {
     ],
     hashtagSets: {
       core: ['#CakeKampala', '#UgandanBakery', '#CustomCakesUG', '#CakeLover'],
-      type: ['#WeddingCake', '#BirthdayCake', '#Cupcakes', '# FondantCake'],
+      type: ['#WeddingCake', '#BirthdayCake', '#Cupcakes', '#FondantCake'],
       local: ['#KampalaFood', '#UgandaFood', '#KampalaEats', '#UGFoodie'],
     },
     emojiSets: ['🎂🍰🧁', '✨🎉💕', '🤤😋🔥', '💝🎂✨'],
+    pricePhrases: ['Starting at UGX 50,000', 'Prices from UGX 30,000', 'Affordable luxury from UGX 25,000'],
   },
   bakery: {
-    openings: [
-      'Fresh from the oven', 'Start your morning with', 'Warm, crusty, perfect',
-      'There\'s nothing like', 'The aroma of', 'Rise and shine with',
-    ],
-    descriptions: [
-      'our artisan {item}', 'freshly baked {item}', 'our signature {item}',
-      'the best {item} in Kampala', 'golden, flaky {item}',
-    ],
-    benefits: [
-      'Baked fresh every single morning',
-      'Made with the finest flour and ingredients',
-      'Your neighborhood bakery since day one',
-      'From our oven to your table',
-    ],
     ctas: [
       'Visit us today or DM to order!',
       'WhatsApp 0700 XXX XXX for bulk orders',
@@ -76,23 +55,9 @@ const PATTERNS: Record<string, CaptionPattern> = {
       local: ['#KampalaFood', '#UgandaEats', '#UGBreakfast', '#KlaFoodie'],
     },
     emojiSets: ['🥖🍞🥐', '☀️☕🥐', '🔥😋🥖', '💛✨🍞'],
+    pricePhrases: ['Starting at UGX 5,000', 'From UGX 3,000 a loaf', 'Prices from UGX 2,500'],
   },
   restaurant: {
-    openings: [
-      'Craving something delicious?', 'Your taste buds will thank you for',
-      'Experience the flavors of', 'Satisfy your hunger with',
-      'Tonight\'s special is', 'Come hungry, leave happy with',
-    ],
-    descriptions: [
-      'our mouthwatering {item}', 'the perfect {item}', 'our chef\'s special {item}',
-      'a plate full of flavor', 'our legendary {item}',
-    ],
-    benefits: [
-      'Generous portions, honest prices',
-      'Made with locally sourced ingredients',
-      'A taste you won\'t find anywhere else',
-      'Perfect for family dining',
-    ],
     ctas: [
       'Reserve your table — DM or call!',
       'WhatsApp 0700 XXX XXX for delivery',
@@ -105,22 +70,9 @@ const PATTERNS: Record<string, CaptionPattern> = {
       local: ['#UgandanFood', '#EastAfricanFood', '#KlaNightlife', '#UGDining'],
     },
     emojiSets: ['🍽️🥘🔥', '😋👨‍🍳✨', '🤤🍗🌶️', '❤️🍴🥂'],
+    pricePhrases: ['Meals from UGX 15,000', 'Starting at UGX 10,000', 'Affordable plates from UGX 8,000'],
   },
   general: {
-    openings: [
-      'Introducing', 'Check out', 'You\'ll love', 'Don\'t miss',
-      'Something special is here', 'Elevate your game with',
-    ],
-    descriptions: [
-      'our amazing {item}', 'something you\'ve been waiting for', 'the best in town',
-      'quality you can trust', 'a game-changer',
-    ],
-    benefits: [
-      'Quality that speaks for itself',
-      'Designed with you in mind',
-      'Supporting local businesses',
-      'Proudly made in Uganda',
-    ],
     ctas: [
       'DM to order!',
       'WhatsApp us at 0700 XXX XXX',
@@ -133,30 +85,29 @@ const PATTERNS: Record<string, CaptionPattern> = {
       local: ['#Kampala', '#UgandaLife', '#UGBusiness', '#KlaHustle'],
     },
     emojiSets: ['✨🔥💯', '💪🇺🇬❤️', '🎯⭐💫', '🚀💯❤️'],
+    pricePhrases: ['Starting at UGX 20,000', 'Prices from UGX 10,000', 'Affordable options from UGX 5,000'],
   },
 };
 
-// ─── Caption Generator ─────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function detectItemFromCaption(caption: string, category: string): string {
-  const lower = caption.toLowerCase();
-  const itemMap: Record<string, string[]> = {
-    cake: ['chocolate cake', 'vanilla cake', 'red velvet', 'birthday cake', 'wedding cake', 'cupcake', 'cheesecake', 'black forest', 'cake'],
-    bakery: ['sourdough', 'croissant', 'bread', 'pastry', 'baguette', 'muffin', 'danish', 'cinnamon roll', 'donut'],
-    restaurant: ['rolex', 'matooke', 'luwombo', 'pilau', 'kikomando', 'grilled chicken', 'fish', 'beef stew', 'rice and beans'],
-    general: [],
-  };
-  const items = itemMap[category] || [];
-  for (const item of items) {
-    if (lower.includes(item)) return item;
-  }
-  return category === 'general' ? 'product' : category === 'cake' ? 'cake' : category === 'bakery' ? 'bread' : 'dish';
+const EMOJI_REGEX = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
+
+function hasEmoji(text: string): boolean {
+  return EMOJI_REGEX.test(text);
 }
 
+/**
+ * IMPROVE the user's caption — preserves the original wording verbatim and
+ * only appends missing elements (price, CTA, emojis, additional hashtags).
+ *
+ * This is the v6.1 behaviour. The previous "generate an entirely new caption"
+ * behaviour is retained only as the empty-caption fallback.
+ */
 export function generateImprovedCaption(
   originalCaption: string,
   features: CaptionFeatures,
@@ -164,88 +115,74 @@ export function generateImprovedCaption(
   trendKeywords: string[] = [],
   topHashtags: string[] = [],
 ): string {
-  if (!originalCaption.trim()) {
+  const trimmed = originalCaption.trim();
+  if (!trimmed) {
     return generateCaptionFromScratch(category, trendKeywords, topHashtags);
   }
 
   const rules = getCategoryRule(category);
   const pattern = PATTERNS[category] || PATTERNS.general;
-  const item = detectItemFromCaption(originalCaption, category);
-  const parts: string[] = [];
+  const additions: string[] = [];
+  const existingHashtags = (trimmed.match(/#\w+/g) || []).map(h => h.toLowerCase());
 
-  // 1. Opening hook
-  const needsHook = originalCaption.length < 50 || !originalCaption.match(/^[A-Z]/);
-  if (needsHook) {
-    parts.push(pick(pattern.openings) + ' ' + pick(pattern.descriptions).replace('{item}', item) + '!');
-  } else {
-    // Polish the original opening
-    parts.push(originalCaption.split(/[.!]/)[0].trim());
-  }
-
-  // 2. Price mention
+  // 1. Append a price phrase if a price is missing AND the category requires one
   if (!features.hasPrice && rules.priceRequired) {
-    const pricePhrases = ['Starting at UGX 50,000', 'Prices from UGX 30,000', 'Affordable luxury from UGX 25,000'];
-    parts.push(pick(pricePhrases));
+    additions.push(pick(pattern.pricePhrases));
   }
 
-  // 3. Benefit / value proposition
-  if (features.wordCount < 60) {
-    parts.push(pick(pattern.benefits));
-  }
-
-  // 4. Trend keyword injection
-  if (trendKeywords.length > 0 && features.trendAlignment.score < 0.3) {
-    const trendingPhrase = `Trending now: ${trendKeywords.slice(0, 2).join(' & ')}`;
-    parts.push(trendingPhrase);
-  }
-
-  // 5. CTA
+  // 2. Append a CTA if missing
   if (!features.hasCta) {
-    parts.push(pick(pattern.ctas));
+    additions.push(pick(pattern.ctas));
   }
 
-  // 6. Emojis
-  const hasEmojis = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}]/u.test(originalCaption);
-  if (!hasEmojis) {
-    parts.push(pick(pattern.emojiSets));
+  // 3. Inject a trend callout if the caption has low trend alignment
+  if (trendKeywords.length > 0 && features.trendAlignment.score < 0.3) {
+    additions.push(`Trending now: ${trendKeywords.slice(0, 2).join(' & ')}`);
   }
 
-  // 7. Hashtags
-  const existingHashtags = (originalCaption.match(/#\w+/g) || []).map(h => h.toLowerCase());
+  // 4. Append emojis if the original has none
+  if (!hasEmoji(trimmed)) {
+    additions.push(pick(pattern.emojiSets));
+  }
+
+  // 5. Compute how many additional hashtags are needed to reach the ideal count
   const neededCount = Math.max(0, rules.idealHashtags - existingHashtags.length);
   const newHashtags: string[] = [];
 
-  // Add category-specific hashtags
-  for (const [_, tags] of Object.entries(pattern.hashtagSets)) {
+  // Pull from category hashtag sets first
+  outer: for (const tags of Object.values(pattern.hashtagSets)) {
     for (const tag of tags) {
-      if (newHashtags.length >= neededCount) break;
-      if (!existingHashtags.includes(tag.toLowerCase()) && !newHashtags.includes(tag)) {
+      if (newHashtags.length >= neededCount) break outer;
+      const lower = tag.toLowerCase();
+      if (!existingHashtags.includes(lower) && !newHashtags.includes(tag)) {
         newHashtags.push(tag);
       }
     }
   }
 
-  // Add top-performing hashtags from DB
+  // Then from top-performing DB hashtags
   for (const tag of topHashtags.slice(0, 5)) {
     if (newHashtags.length >= neededCount) break;
     const formatted = tag.startsWith('#') ? tag : `#${tag}`;
-    if (!existingHashtags.includes(formatted.toLowerCase()) && !newHashtags.includes(formatted)) {
+    const lower = formatted.toLowerCase();
+    if (!existingHashtags.includes(lower) && !newHashtags.includes(formatted)) {
       newHashtags.push(formatted);
     }
   }
 
-  if (newHashtags.length > 0) {
-    parts.push('\n\n' + newHashtags.join(' '));
-  }
+  // Compose — always start with the user's original text. Additions go on a
+  // new line so the user's caption stays visually distinct.
+  const parts: string[] = [trimmed];
+  if (additions.length > 0) parts.push(additions.join(' '));
+  if (newHashtags.length > 0) parts.push(newHashtags.join(' '));
 
-  // Preserve existing hashtags from original
-  if (existingHashtags.length > 0) {
-    parts.push(existingHashtags.map(h => h.startsWith('#') ? h : `#${h}`).join(' '));
-  }
-
-  return parts.join(' ').replace(/\n{3,}/g, '\n\n').trim();
+  return parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * Fallback used when the user provided no caption text at all.
+ * Composes a category-appropriate caption from scratch.
+ */
 function generateCaptionFromScratch(
   category: string,
   trendKeywords: string[],
@@ -257,20 +194,17 @@ function generateCaptionFromScratch(
 
   const parts: string[] = [];
 
-  // Opening
-  parts.push(`${pick(pattern.openings)} ${pick(pattern.descriptions).replace('{item}', item)}!`);
+  // Compose a short opening
+  parts.push(`Indulge in our ${item} — crafted with love and the finest ingredients.`);
 
-  // Benefit
-  parts.push(pick(pattern.benefits) + '.');
+  // Price
+  if (rules.priceRequired) {
+    parts.push(pick(pattern.pricePhrases) + '.');
+  }
 
   // Trend
   if (trendKeywords.length > 0) {
     parts.push(`Join the ${trendKeywords[0]} trend!`);
-  }
-
-  // Price
-  if (rules.priceRequired) {
-    parts.push('Starting at UGX 50,000.');
   }
 
   // CTA
@@ -301,7 +235,6 @@ export function generatePlatformVariants(
   category: string,
 ): { platform: 'instagram' | 'twitter' | 'facebook'; caption: string; hashtags: string[]; scorePrediction: number; reasoning: string }[] {
   const rules = getCategoryRule(category);
-  const pattern = PATTERNS[category] || PATTERNS.general;
   const hashtags = (baseCaption.match(/#\w+/g) || []);
   const textOnly = baseCaption.replace(/#\w+/g, '').replace(/\n{2,}/g, '\n').trim();
 
@@ -329,3 +262,6 @@ export function generatePlatformVariants(
     },
   ];
 }
+
+// Avoid unused import warnings
+export const _PATTERNS = PATTERNS;
