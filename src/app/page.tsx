@@ -457,77 +457,10 @@ export default function TrendLensDashboard() {
                   </Card>
                 )}
 
-                {/* RAG Insights */}
-                {evaluation.ragInsights && evaluation.ragInsights.length > 0 && (
-                  <Card className="lg:col-span-2">
-                    <CardHeader>
-                      <CardTitle className="text-base flex items-center gap-2">{Icons.insights} RAG-Powered Insights</CardTitle>
-                      <CardDescription>Similar high-performing posts from our database — learn from what works</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {evaluation.ragInsights.map((insight, idx) => (
-                          <div key={idx} className="bg-muted/50 rounded-lg p-3 border">
-                            <div className="flex items-center justify-between mb-2">
-                              <Badge variant="secondary" className="text-xs">{insight.category}</Badge>
-                              <span className="text-xs font-medium text-sky-600">
-                                {Math.round(insight.engagementRate * 100)}% engagement
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground line-clamp-3 mb-2">{insight.caption}</p>
-                            {insight.keyPatterns.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {insight.keyPatterns.map((p, i) => (
-                                  <Badge key={i} variant="outline" className="text-[10px]">{p}</Badge>
-                                ))}
-                              </div>
-                            )}
-                            <p className="text-xs text-sky-700 dark:text-sky-400 mt-2">{insight.takeaway}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Benchmarks */}
-                {evaluation.benchmarks && evaluation.benchmarks.dbConnected && (
-                  <Card className="lg:col-span-2">
-                    <CardHeader>
-                      <CardTitle className="text-base">Data Benchmarks</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="text-center">
-                          <p className="text-2xl font-bold">{evaluation.benchmarks.categorySamples}</p>
-                          <p className="text-xs text-muted-foreground">Category Samples</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold">{(evaluation.benchmarks.industryAvgEngagement * 100).toFixed(1)}%</p>
-                          <p className="text-xs text-muted-foreground">Avg Engagement</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold">{(evaluation.benchmarks.ctaEngagementBoost * 100).toFixed(1)}%</p>
-                          <p className="text-xs text-muted-foreground">CTA Boost</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold">{(evaluation.benchmarks.priceEngagementBoost * 100).toFixed(1)}%</p>
-                          <p className="text-xs text-muted-foreground">Price Boost</p>
-                        </div>
-                      </div>
-                      {evaluation.benchmarks.topHashtags && evaluation.benchmarks.topHashtags.length > 0 && (
-                        <div className="mt-3">
-                          <p className="text-xs text-muted-foreground mb-1">Top Performing Hashtags:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {evaluation.benchmarks.topHashtags.map((tag, idx) => (
-                              <Badge key={idx} variant="outline" className="text-xs">{tag}</Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
+                {/* RAG-Powered Insights and Data Benchmarks cards were removed
+                    from the UI per user request. The underlying data is still
+                    computed by the /api/evaluate endpoint and stored in the
+                    evaluation document for future analytics. */}
               </div>
             )}
           </TabsContent>
