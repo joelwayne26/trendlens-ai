@@ -394,39 +394,39 @@ function generatePosterImprovements(
   if (mode !== 'poster') {
     if (!cf.hasPrice) {
       if (db && benchmarks.priceEngagementBoost > 0) {
-        improvements.push(`💰 Add a visible price (e.g., 'UGX 50,000') — based on ${samples} posts, prices boost engagement by ${Math.abs(benchmarks.priceEngagementBoost * 100).toFixed(1)}%`);
+        improvements.push(`Add a visible price (e.g., 'UGX 50,000') — based on ${samples} posts, prices boost engagement by ${Math.abs(benchmarks.priceEngagementBoost * 100).toFixed(1)}%`);
       } else {
-        improvements.push("💰 No price found — add a visible price (e.g., 'UGX 50,000') to boost buyer intent");
+        improvements.push("No price found — add a visible price (e.g., 'UGX 50,000') to boost buyer intent");
       }
     }
 
     if (!cf.hasCta) {
       if (db && benchmarks.ctaEngagementBoost > 0) {
-        improvements.push(`📣 Add a call-to-action like 'DM to order' — our data shows CTAs boost engagement by ${Math.abs(benchmarks.ctaEngagementBoost * 100).toFixed(1)}%`);
+        improvements.push(`Add a call-to-action like 'DM to order' — our data shows CTAs boost engagement by ${Math.abs(benchmarks.ctaEngagementBoost * 100).toFixed(1)}%`);
       } else {
-        improvements.push("📣 No call-to-action — add text like 'DM to order' or 'WhatsApp 0700 XXX XXX'");
+        improvements.push("No call-to-action — add text like 'DM to order' or 'WhatsApp 0700 XXX XXX'");
       }
     }
 
     if (cf.sentiment.polarity < -0.1) {
-      improvements.push('😊 Caption tone is negative — use positive, enthusiastic language to attract customers');
+      improvements.push('Caption tone is negative — use positive, enthusiastic language to attract customers');
     }
   }
 
   // Image-based improvements
   if (imageQuality) {
     if (imageQuality.brightness < 0.25) {
-      improvements.push('💡 Your poster image is too dark — use better lighting to make the food look appetizing');
+      improvements.push('Your poster image is too dark — use better lighting to make the food look appetizing');
     }
     if (imageQuality.blurScore < 0.25) {
-      improvements.push('📷 Image appears blurry — use a stable camera and tap to focus for sharp food photos');
+      improvements.push('Image appears blurry — use a stable camera and tap to focus for sharp food photos');
     }
     if (imageQuality.resolution.width < 480) {
-      improvements.push('🖼️ Image resolution is too low for social media — use at least 1080px wide');
+      improvements.push('Image resolution is too low for social media — use at least 1080px wide');
     }
   } else if (mode !== 'caption') {
     // Only suggest uploading an image when the user didn't explicitly choose caption-only.
-    improvements.push('🖼️ Add a poster image — posts with images get 2.3x more engagement than text-only posts');
+    improvements.push('Add a poster image — posts with images get 2.3x more engagement than text-only posts');
   }
 
   return improvements.slice(0, 8);
@@ -440,31 +440,31 @@ function generateCaptionImprovements(cf: import('@/lib/types').CaptionFeatures, 
   if (cf.hashtagCount < rules.minHashtags) {
     const gap = rules.idealHashtags - cf.hashtagCount;
     if (db && benchmarks.topHashtags?.length) {
-      suggestions.push(`#️⃣ Add ${gap} more hashtags — top performers: ${benchmarks.topHashtags.slice(0, 5).join(' ')}`);
+      suggestions.push(`Add ${gap} more hashtags — top performers: ${benchmarks.topHashtags.slice(0, 5).join(' ')}`);
     } else {
-      suggestions.push(`#️⃣ Add ${gap} more hashtags — ${rules.idealHashtags}+ is ideal for ${category} posts`);
+      suggestions.push(`Add ${gap} more hashtags — ${rules.idealHashtags}+ is ideal for ${category} posts`);
     }
   }
 
   const checks = cf.categoryChecks as Record<string, unknown>;
   if (!checks.cta_check_pass) {
-    suggestions.push("📣 Add a call-to-action like 'DM to order', 'Link in bio', or 'WhatsApp 0700 123456'");
+    suggestions.push("Add a call-to-action like 'DM to order', 'Link in bio', or 'WhatsApp 0700 123456'");
   }
 
   if (!checks.price_check_pass) {
-    suggestions.push("💰 Include pricing (e.g., 'Starting at UGX 50,000') — price mentions increase engagement by up to 30%");
+    suggestions.push("Include pricing (e.g., 'Starting at UGX 50,000') — price mentions increase engagement by up to 30%");
   }
 
   if (cf.wordCount < rules.idealCaptionLength[0]) {
-    suggestions.push(`✍️ Caption is too short (${cf.wordCount} words) — aim for ${rules.idealCaptionLength[0]}-${rules.idealCaptionLength[1]} words`);
+    suggestions.push(`Caption is too short (${cf.wordCount} words) — aim for ${rules.idealCaptionLength[0]}-${rules.idealCaptionLength[1]} words`);
   }
 
   if (cf.emojiCount < 1) {
-    suggestions.push('😊 Add 2-3 relevant emojis to make the caption more visually appealing');
+    suggestions.push('Add 2-3 relevant emojis to make the caption more visually appealing');
   }
 
   if (cf.trendAlignment.score < 0.2 && cf.trendAlignment.bestTrendKeyword) {
-    suggestions.push(`📈 Low trend alignment — incorporate trending topics like '${cf.trendAlignment.bestTrendKeyword}'`);
+    suggestions.push(`Low trend alignment — incorporate trending topics like '${cf.trendAlignment.bestTrendKeyword}'`);
   }
 
   return suggestions.slice(0, 6);
