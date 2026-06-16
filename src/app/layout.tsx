@@ -19,8 +19,15 @@ export const metadata: Metadata = {
   description: "AI-powered social media trend analytics platform for Ugandan food businesses. Features SHAP explainability, RAG-powered insights, and local caption generation.",
   keywords: ["TrendLens", "Ugandan Food", "Social Media Analytics", "AI", "SHAP", "RAG"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon-16.png", type: "image/png", sizes: "16x16" },
+    ],
+    shortcut: ["/favicon.ico"],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
+  manifest: "/site.webmanifest",
 };
 
 export default function RootLayout({
